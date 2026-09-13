@@ -31,7 +31,7 @@ const startMonitorWorker = async()=>{
                 let status = "DOWN";
                 try{
                     const response = await fetch(url,{
-                        signal: AbortSignal.timeout(5000)
+                        signal: AbortSignal.timeout(10000)
                     });
                     responseReceivedAt = new Date();
                     responseTime = responseReceivedAt - requestSentAt;
@@ -74,6 +74,33 @@ const startMonitorWorker = async()=>{
 
                     await check.save();
                     console.log("Check saved successfully");    
+
+                    if(status === "UP"){
+                        monitor.consecutiveSuccesses += 1;
+                        monitor.consecutiveFailures = 0;
+                    }
+                    else if(status === "DOWN"){
+                        monitor.consecutiveFailures += 1;
+                        monitor.consecutiveSuccesses = 0;
+                    }
+
+                    if(monitor.consecutiveFailures >= 2){
+                        monitor.status = "DOWN";
+                    }
+                    else if(monitor.consecutiveSuccesses >= 2){
+                        monitor.status = "UP";
+                    }
+
+                    let currentTime = new Date();
+                    if(currentTime - monitor.nextCheckAt <= monitor.interval * 1000){
+                        monitor.nextCheckAt = new Date(monitor.nextCheckAt.getTime() + monitor.interval * 1000);
+                    }
+                    else{
+                        monitor.nextCheckAt = new Date(currentTime.getTime() + monitor.interval * 1000);
+                    }
+
+                    await monitor.save();
+
                 } catch(error){
                     console.log("Error while saving check:", error);
                 }
