@@ -20,9 +20,9 @@ const startMonitorWorker = async()=>{
             let monitorCount = monitors.length;
             console.log(`Due monitors: ${monitorCount}`);
             for(const monitor of monitors){
-                // const url = monitor.url;
+                const url = monitor.url;
                 // const url = "https://example.com/"; 
-                const url = "https://this-domain-does-not-exist-12345.com";
+                // const url = "https://this-domain-does-not-exist-12345.com";
                 // const url = "https://httpbin.org/delay/10"; // Simulating a slow response for testing
                 const requestSentAt = new Date();
                 let responseReceivedAt;
@@ -78,6 +78,8 @@ const startMonitorWorker = async()=>{
 
                     let currentTime = new Date();
 
+                    let previousStatus = monitor.status;
+
                     if(status === "UP"){
                         monitor.consecutiveSuccesses += 1;
                         monitor.consecutiveFailures = 0;
@@ -86,7 +88,7 @@ const startMonitorWorker = async()=>{
                         monitor.consecutiveFailures += 1;
                         monitor.consecutiveSuccesses = 0;
                     }
-
+                    
                     if(monitor.consecutiveFailures >= 2){
                         monitor.status = "DOWN";
                     }
@@ -104,7 +106,7 @@ const startMonitorWorker = async()=>{
 
                     await monitor.save();
                     let incidentStartedAt;
-                    if (monitor.consecutiveFailures === 2){
+                    if (monitor.consecutiveFailures === 2 && monitor.status === "DOWN" && previousStatus === "UP") {
                         const previousDownCheck = await Check.find({
                             monitorId: monitor._id,
                             status: "DOWN"
@@ -120,6 +122,25 @@ const startMonitorWorker = async()=>{
 
                         await incident.save();
                         console.log("Incident created successfully");
+                    }
+
+                    if (monitor.consecutiveSuccesses === 2 && monitor.status === "UP" && previousStatus === "DOWN") {
+                        const openIncident = await Incident.findOne({
+                            monitorId: monitor._id,
+                            status: "OPEN"
+                        }).sort({ incidentStartedAt: -1 });
+
+                        if (openIncident) {
+                            const previousUPCheck = await Check.find({
+                                monitorId: monitor._id,
+                                status: "UP"
+                            }).sort({ requestSentAt: -1 }).skip(1).limit(1);
+                            openIncident.recoveredAt = previousUPCheck[0].requestSentAt;
+                            openIncident.duration = (openIncident.recoveredAt - openIncident.incidentStartedAt) / 1000; // Duration in seconds
+                            openIncident.status = "RECOVERED";
+                            await openIncident.save();
+                            console.log("Incident recovered successfully");
+                        }
                     }
 
                 } catch(error){
